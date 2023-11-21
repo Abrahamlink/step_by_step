@@ -1,9 +1,13 @@
 import asyncio
 import logging
-import random
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters.command import Command
+from aiogram import Bot, Dispatcher
+from aiogram.filters import Command
+from aiogram.types import Message
+
 from config import Token
+
+from aiohttp import ClientSession
+
 
 # Включаем логирование, чтобы не пропустить важные сообщения
 logging.basicConfig(level=logging.INFO)
@@ -13,13 +17,31 @@ bot = Bot(token=Token)
 dp = Dispatcher()
 
 
-# Хэндлер на команду /start
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    if random.randint(0, 100) < 50:
-        await message.answer("Hello!")
-    else:
-        await message.answer("Привет!")
+# Этот хэндлер будет срабатывать на команду "/start"
+@dp.message(Command(commands=["start"]))
+async def process_start_command(message: Message):
+    await message.answer('Привет!\nМеня зовут Эхо-бот!\nНапиши мне что-нибудь')
+
+
+# Этот хэндлер будет срабатывать на команду "/help"
+@dp.message(Command(commands=['help']))
+async def process_help_command(message: Message):
+    await message.answer(
+        'Напиши мне что-нибудь и в ответ\n'
+        'я пришлю тебе твое сообщение\n'
+        'Для того, чтобы получить помощь, напиши команду "/help"'
+    )
+
+
+@dp.message(Command("cat"))
+async def cmd_cat(message: Message):
+    async with ClientSession() as session:
+        url = f'https://api.thecatapi.com/v1/images/search'
+
+        async with session.get(url=url) as response:
+            cat_json = await response.json()
+            cat = cat_json[0]['url']
+            await message.answer_photo(cat)
 
 
 # Запуск процесса поллинга новых апдейтов
