@@ -31,12 +31,16 @@ class Play(object):
             self.attempts = user_stats.get('attempts')
             self.total_games = user_stats.get('total_games')
             self.wins = user_stats.get('wins')
+            self.cats_coins = user_stats.get('cats_coins')
+            self.cats_pics = user_stats.get('cats_pics')
         else:
             self.in_game = False
             self.number = random.randint(1, 100)
             self.attempts = 5
             self.total_games = 0
             self.wins = 0
+            self.cats_coins = 0
+            self.cats_pics = []
 
     async def stats(self):
         return {f'{self.user_id}': {
@@ -44,7 +48,9 @@ class Play(object):
             'number': self.number,
             'attempts': self.attempts,
             'total_games': self.total_games,
-            'wins': self.wins
+            'wins': self.wins,
+            'cats_coins': self.cats_coins,
+            'cats_pics': self.cats_pics
         }}
 
     async def save_stats(self, filename: str = 'addition/stats.json'):
@@ -64,6 +70,7 @@ class Play(object):
         self.in_game = False
         self.total_games += 1
         self.wins += 1
+        self.cats_coins += 1
         self.attempts = 5
 
         await self.save_stats()
@@ -118,6 +125,11 @@ class Play(object):
 
         await self.save_stats()
         return 'cancel'
+
+    async def buy_cat(self, cat_url: str):
+        self.cats_coins -= 1
+        self.cats_pics.append(cat_url)
+        await self.save_stats()
 
 
 # d = {'313123':
