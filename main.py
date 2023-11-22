@@ -2,7 +2,8 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InputMediaPhoto
+from aiogram.enums import InputMediaType
 
 from config import Token
 
@@ -42,19 +43,38 @@ async def process_help_command(message: Message):
     await message.answer(
         'Напиши мне что-нибудь, и в ответ '
         'я пришлю тебе твое сообщение\n'
-        'Также мы можем сыграть в игру "Угадай число" Для этого напиши команду /play'
+        'Также мы можем сыграть в игру "Угадай число" Для этого напиши команду /play\n'
+        'За каждую победу ты будешь получать котокоины, которые можно обменять на котиков))))'
     )
+
+
+@dp.message(Command("cats"))
+async def cmd_cats(message: Message):
+    player = await initialize_play(message=message)
+    cats_urls = player.cats_pics[:10][::-1]
+    try:
+        await message.answer_media_group([InputMediaPhoto(media=pic)for pic in cats_urls])
+    except:
+        await message.answer(text=f'У тебя пока нет Котиков :(\n'
+                                  f'Нужны Котокоины))')
 
 
 @dp.message(Command("cat"))
 async def cmd_cat(message: Message):
-    async with ClientSession() as session:
-        url = f'https://api.thecatapi.com/v1/images/search'
+    player = await initialize_play(message=message)
+    if player.cats_coins != 0:
+        async with ClientSession() as session:
+            url = f'https://api.thecatapi.com/v1/images/search'
 
-        async with session.get(url=url) as response:
-            cat_json = await response.json()
-            cat = cat_json[0]['url']
-            await message.answer_photo(cat)
+            async with session.get(url=url) as response:
+                cat_json = await response.json()
+                cat = cat_json[0]['url']
+                await player.buy_cat(cat)
+                await message.answer_photo(cat, caption=f'Баланс котокоинов: {player.cats_coins} ')
+    else:
+        await message.answer(text=f'У тебя пока нет котокоинов((\n'
+                                  f'Сыграй со мной в игру, и если выиграешь, получишь котокоин))\n'
+                                  f'P.S. пиши /play')
 
 
 @dp.message(Command("play"))
@@ -78,7 +98,8 @@ async def cmd_stats(message: Message):
         await message.answer(text=f'У тебя пока нет статистики!')
     else:
         win_percentage = 100 * player_stats["wins"] / player_stats["total_games"]
-        await message.answer(text=f'Статистика:\n'
+        await message.answer(text=f'Статистика:\n\n'
+                                  f'Котокоины: {player_stats["cats_coins"]}\n'
                                   f'Сыграно игр: {player_stats["total_games"]}\n'
                                   f'Победы: {player_stats["wins"]}\n'
                                   f'Процент побед: {win_percentage:.2f}%')
@@ -122,6 +143,7 @@ async def process_numbers_answer(message: Message):
     else:
         await message.answer(text=f'Ты не в игре!\n'
                                   f'Хочешь сыграть - введи /play')
+    del player
 
 
 # Этот хэндлер будет срабатывать на любые ваши текстовые сообщения,
