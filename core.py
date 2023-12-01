@@ -1,7 +1,12 @@
 import datetime
 import random
 import json
-import asyncio
+import math
+
+from aiohttp import ClientSession
+from googletrans import Translator
+
+FILENAME = 'addition/stats.json'
 
 
 async def get_stats(user_id: int = -1, filename: str = 'addition/stats.json'):
@@ -23,11 +28,23 @@ async def set_stats(user_id: int, data: dict, filename: str = 'addition/stats.js
         return data[f'{user_id}']
 
 
+async def calculate_reward(attempts: int, game_range: list):
+    return round(6 * (game_range[1] - game_range[0] + 1) / (99 * attempts))
+
+
+async def initialize_play(message):
+    player_stats = await get_stats(user_id=message.from_user.id, filename=FILENAME)
+    player = Play(user_id=message.from_user.id, user_stats=player_stats)
+    await player.update_date(message.date.strftime("%d.%m.%Y, %H:%M:%S"))
+    return player
+
+
 class Play(object):
-    def __init__(self, user_id, user_stats: dict = dict):
+    def __init__(self, user_id=-1, user_stats: dict = dict):
         self.user_id = user_id
         if user_stats != {}:
             self.user_info = user_stats.get('user_info')
+            self.rules = user_stats.get('rules')
             self.in_game = user_stats.get('in_game')
             self.last_activity = user_stats.get('last_activity')
             self.number = user_stats.get('number')
@@ -38,10 +55,15 @@ class Play(object):
             self.cats_pics = user_stats.get('cats_pics')
         else:
             self.user_info = {}
+            self.rules = {
+                'attempts': 6,
+                'choice_range': [1, 100],
+                'fact_mode': 'trivial',
+            }
             self.in_game = False
             self.last_activity = datetime.datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
             self.number = random.randint(1, 100)
-            self.attempts = 5
+            self.attempts = self.rules.get('attempts')
             self.total_games = 0
             self.wins = 0
             self.cats_coins = 0
@@ -50,6 +72,7 @@ class Play(object):
     async def stats(self) -> dict:
         return {f'{self.user_id}': {
             'user_info': self.user_info,
+            'rules': self.rules,
             'in_game': self.in_game,
             'last_activity': self.last_activity,
             'number': self.number,
@@ -83,12 +106,24 @@ class Play(object):
         await self.save_stats()
         print('Date of last activity updated successfully!\n')
 
+    async def update_rules(self, updating_data: dict = {}):
+        if not self.in_game:
+            self.rules['attempts'] = updating_data['attempts']
+            self.rules['choice_range'] = updating_data['choice_range']
+            await self.save_stats()
+            print('New rules updated successfully!\n')
+            return True
+        else:
+            print('Can\'t update rules, game is in progress yet!\n')
+            return False
+
     async def _win(self):
         self.in_game = False
         self.total_games += 1
         self.wins += 1
-        self.cats_coins += 1
-        self.attempts = 5
+        reward = await calculate_reward(attempts=self.rules.get('attempts'),
+                                        game_range=self.rules.get('choice_range'))
+        self.cats_coins += reward
 
         await self.save_stats()
         print("Game won!")
@@ -113,8 +148,8 @@ class Play(object):
     async def play(self):
         """Start the game"""
         self.in_game = True
-        self.number = random.randint(1, 100)
-        self.attempts = 5
+        self.number = random.randint(self.rules.get('choice_range')[0], self.rules.get('choice_range')[1])
+        self.attempts = self.rules.get('attempts')
         await self.save_stats()
         print("Game started")
 
@@ -138,7 +173,6 @@ class Play(object):
 
     async def cancel(self):
         self.in_game = False
-        self.attempts = 5
 
         await self.save_stats()
         return 'cancel'
@@ -147,3 +181,42 @@ class Play(object):
         self.cats_coins -= 1
         self.cats_pics.append(cat_url)
         await self.save_stats()
+
+
+async def get_fact(digit: int | str, mode='trivial', src: str = 'en', dest: str = 'ru') -> str | bool:
+    base_url = 'http://numbersapi.com'
+    async with ClientSession() as session:
+        if mode == 'trivial':
+            url_number = base_url + f'/{digit}'
+        elif mode == 'math' or 'year' or 'date':
+            url_number = base_url + f'/{digit}' + f'/{mode}'
+        else:
+            url_number = base_url + 'random' + f'/{mode}'
+        print(url_number)
+        async with session.get(url=url_number) as response:
+            try:
+                data = await response.text()
+                translate = Translator()
+                translation = translate.translate(text=data, src=src, dest=dest)
+                return translation.text
+            except Exception as ex:
+                print(ex)
+                return False
+            finally:
+                await session.close()
+
+
+async def get_cat(player: Play) -> str | bool:
+    async with ClientSession() as session:
+        url_cats = f'https://api.thecatapi.com/v1/images/search'
+        try:
+            async with session.get(url=url_cats) as response:
+                cat_json = await response.json()
+                cat = cat_json[0]['url']
+                await player.buy_cat(cat)
+                return cat
+        except Exception as ex:
+            print(ex)
+            return False
+        finally:
+            await session.close()
